@@ -2,6 +2,10 @@
 
 namespace App\Controller;
 
+use DateTime;
+use App\Entity\Message;
+use Symfony\Component\HttpFoundation\Request;
+use App\Form\MessageType;
 use App\Services\OpenAIService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -13,6 +17,7 @@ class ChatController extends AbstractController
     private $entityManager;
     private $openAIService;
 
+
     public function __construct(EntityManagerInterface $entityManager, OpenAIService $openAIService)
     {
         $this->entityManager = $entityManager;
@@ -20,22 +25,64 @@ class ChatController extends AbstractController
     }
 
     #[Route('/', name: 'app_chat')]
-    public function index(): Response
+    public function index(Request $request): Response
     {
+        $message = new Message();
+        $form = $this->createForm(MessageType::class, $message);
+        $form->handleRequest($request);
+        if ($form->isSubmitted()) {
+            $message = $this->NewMessage($message->getContent(), 'user');
+            $history = $this->GetHistory();
+            $responsecontent = $this->openAIService->apiRequest($history);
+            $this->NewMessage($responsecontent, 'assistant');
 
-        $message = "dis moi bonjour";
-        $response = $this->openAIService->apiRequest($message);
-
-
-        //remplacer le content par des données d'un formulaire
-        // enregistrer le message dans une BDD
-        // créer une entité message
-        // enregistrer le content de la réponse en tant qu'entité message
-        // Afficher le tout
+            return $this->redirectToRoute('app_chat');
+        }
+        $messages = $this->entityManager
+            ->getRepository(Message::class)
+            ->findAll();
 
         return $this->render('chat/index.html.twig', [
             'controller_name' => 'ChatController',
-            'response' => $response
+            'messages' => $messages,
+            'form' =>  $form->createView(),
         ]);
+    }
+
+
+
+
+    public function GetHistory()
+    {
+        $packdemessageszebi = $this->entityManager->getrepository(Message::class)
+            ->findBy([], ["createdAt" => "DESC"], 9);
+
+        return array_reverse($packdemessageszebi);
+    }
+
+    public function NewMessage(string $content, string $role)
+    {
+        $message = new Message;
+        $message->setRole($role)
+            ->setContent($content)
+            ->setCreatedAt(new \DateTime());
+
+        $this->entityManager->persist($message);
+        $this->entityManager->flush();
+
+        return $message;
+    }
+    #[Route('/clear', name: 'app_clear')]
+    public function clear(Request $request): Response
+    {
+
+        $messages = $this->entityManager->getrepository(Message::class)
+            ->findAll();
+        foreach ($messages as $message) {
+            $this->entityManager->remove($message);
+        }
+        $this->entityManager->flush();
+
+        return $this->redirectToRoute("app_chat");
     }
 }
